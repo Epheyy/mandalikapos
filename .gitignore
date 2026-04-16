@@ -1,0 +1,31 @@
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.production
+*.env
+
+# Go
+backend/bin/
+backend/tmp/
+backend/internal/auth/firebase-service-account.json
+
+# Flutter
+flutter_app/.dart_tool/
+flutter_app/build/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+
+# Python
+bi_service/__pycache__/
+bi_service/.venv/
+bi_service/*.pyc
+bi_service/.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
