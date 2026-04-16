@@ -15,6 +15,7 @@ import (
 	"github.com/Epheyy/mandalikapos/backend/internal/database"
 	"github.com/Epheyy/mandalikapos/backend/internal/handlers"
 	appMiddleware "github.com/Epheyy/mandalikapos/backend/internal/middleware"
+	redisclient "github.com/Epheyy/mandalikapos/backend/internal/redis"
 	"github.com/Epheyy/mandalikapos/backend/internal/services"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -51,6 +52,20 @@ func main() {
 	// ── Handlers ───────────────────────────────────────────────
 	userHandler := handlers.NewUserHandler(userService)
 
+	// After: userHandler := handlers.NewUserHandler(userService)
+	// Add these lines:
+
+	// Redis cache
+	cache, err := redisclient.New(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("❌ Redis connection failed: %v", err)
+	}
+	defer cache.Close()
+
+	// Product service and handler
+	productService := services.NewProductService(db, cache)
+	productHandler := handlers.NewProductHandler(productService)
+
 	// ── Router ────────────────────────────────────────────────
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
@@ -81,6 +96,30 @@ func main() {
 
 	// All routes under /api/v1
 	r.Route("/api/v1", func(r chi.Router) {
+
+		// Products — all authenticated users can read
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.RequireAuth(firebaseClient))
+
+			r.Get("/products", productHandler.ListActiveProducts)
+			r.Get("/products/{id}", productHandler.GetProduct)
+			r.Get("/categories", productHandler.ListCategories)
+		})
+
+		// Admin product management
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.RequireAuth(firebaseClient))
+			r.Use(appMiddleware.RequireRole(db, "admin", "manager"))
+
+			r.Get("/admin/products", productHandler.ListAllProducts)
+			r.Post("/admin/products", productHandler.CreateProduct)
+			r.Patch("/admin/products/{id}", productHandler.UpdateProduct)
+			r.Delete("/admin/products/{id}", productHandler.DeleteProduct)
+
+			r.Post("/admin/categories", productHandler.CreateCategory)
+			r.Put("/admin/categories/{id}", productHandler.UpdateCategory)
+			r.Delete("/admin/categories/{id}", productHandler.DeleteCategory)
+		})
 
 		// ── Auth routes (require valid Firebase token) ─────────
 		r.Group(func(r chi.Router) {
