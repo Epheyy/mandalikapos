@@ -1,5 +1,5 @@
 name: mandalika_pos
-description: Mandalika POS - Flutter cashier application
+description: Mandalika POS - Point of Sale for Mandalika Perfume
 version: 1.0.0+1
 publish_to: 'none'
 
@@ -10,10 +10,47 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Firebase - Authentication
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  google_sign_in: ^6.2.1
+
+  # HTTP client - more powerful than built-in http package
+  # Supports interceptors (auto-attach auth tokens to every request)
+  dio: ^5.7.0
+
+  # State management - simple and predictable
+  # Riverpod watches data and rebuilds UI when it changes
+  flutter_riverpod: ^2.5.1
+
+  # Secure storage - stores tokens encrypted on device
+  # Never store tokens in SharedPreferences (not encrypted)
+  flutter_secure_storage: ^9.2.2
+
+  # Environment variables - reads from .env file
+  flutter_dotenv: ^5.1.0
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # Icons
+  lucide_icons: 0.257.0
+
+  # Number formatting (IDR currency)
+  intl: ^0.19.0
+
+  # Image caching - loads and caches product images efficiently
+  cached_network_image: ^3.4.1
+
+  # Loading indicators
+  shimmer: ^3.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^4.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - .env
