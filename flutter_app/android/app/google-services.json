@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "538849926142",
+    "project_id": "mandalika-pos",
+    "storage_bucket": "mandalika-pos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:538849926142:android:6f7c031b36bfc8ac4ebeaf",
+        "android_client_info": {
+          "package_name": "com.mandalika.mandalika_pos"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "538849926142-2ddrqf5b9duu8h4m1nlne49nvnmtqhdj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mandalika.mandalika_pos",
+            "certificate_hash": "7373e755f99d90ada697ef4153706b0412a0733c"
+          }
+        },
+        {
+          "client_id": "538849926142-gp71srefgkl5j66eaohee44ier9gfjk1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQE7IcxkifEz9N7xdJIJ0P-b9uxiZlpQQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "538849926142-gp71srefgkl5j66eaohee44ier9gfjk1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
