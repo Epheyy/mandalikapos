@@ -4,6 +4,7 @@
 //   2. Handles token expiry (gets a fresh token if needed)
 //   3. Converts API errors into readable messages
 // Every feature uses this — never create a raw http.Client or Dio directly.
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,7 +37,7 @@ class ApiClient {
       requestBody: true,
       responseBody: true,
       // Only log in debug — never log tokens in production
-      logPrint: (obj) => print('[API] $obj'),
+      logPrint: (obj) => debugPrint('[API] $obj'),
     ));
   }
 

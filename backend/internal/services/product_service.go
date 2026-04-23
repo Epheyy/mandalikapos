@@ -14,7 +14,6 @@ import (
 // Cache key constants — centralised so they're consistent everywhere.
 // If we change a key name, we only change it in one place.
 const (
-	cacheKeyAllProducts    = "products:all"
 	cacheKeyActiveProducts = "products:active"
 	cacheKeyAllCategories  = "categories:all"
 	cacheTTLProducts       = 5 * time.Minute

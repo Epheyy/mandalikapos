@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../products/models/product.dart';
 import '../../products/providers/products_provider.dart';
+import '../../cart/models/cart_item.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../../cart/widgets/variant_selector.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../settings/screens/printer_settings_screen.dart';
+import '../../../core/bluetooth/printer_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import 'checkout_screen.dart';
 
@@ -39,6 +42,23 @@ class CashierScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+            Consumer(builder: (context, ref, _) {
+              final status = ref.watch(printerStatusProvider);
+              return IconButton(
+                icon: Icon(
+                  Icons.print_rounded,
+                  color: status == PrinterStatus.connected
+                      ? AppTheme.success
+                      : AppTheme.textMuted,
+                ),
+                tooltip: 'Pengaturan Printer',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const PrinterSettingsScreen()),
+                  ),
+                );
+              }),
           // Cart button with item count badge
           if (cartTotals.itemCount > 0)
             Stack(
@@ -177,7 +197,7 @@ class CashierScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CartSheet(ref: ref),
+      builder: (_) => const _CartSheet(),
     );
   }
 
@@ -205,13 +225,12 @@ class CashierScreen extends ConsumerWidget {
 
 // ── Cart Bottom Sheet ──────────────────────────────────────────────
 class _CartSheet extends ConsumerWidget {
-  final WidgetRef ref;
-  const _CartSheet({required this.ref});
+  const _CartSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef widgetRef) {
-    final items = widgetRef.watch(cartProvider);
-    final totals = widgetRef.watch(cartTotalsProvider);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(cartProvider);
+    final totals = ref.watch(cartTotalsProvider);
 
     return Container(
       decoration: const BoxDecoration(
@@ -241,7 +260,7 @@ class _CartSheet extends ConsumerWidget {
                 const Spacer(),
                 TextButton(
                   onPressed: () {
-                    widgetRef.read(cartProvider.notifier).clearCart();
+                    ref.read(cartProvider.notifier).clearCart();
                     Navigator.pop(context);
                   },
                   child: const Text('Kosongkan',
@@ -256,13 +275,13 @@ class _CartSheet extends ConsumerWidget {
               itemCount: items.length,
               itemBuilder: (_, i) => _CartItemRow(
                 cartItem: items[i],
-                onIncrease: () => widgetRef
+                onIncrease: () => ref
                     .read(cartProvider.notifier)
                     .updateQuantity(items[i].variantId, items[i].quantity + 1),
-                onDecrease: () => widgetRef
+                onDecrease: () => ref
                     .read(cartProvider.notifier)
                     .updateQuantity(items[i].variantId, items[i].quantity - 1),
-                onRemove: () => widgetRef
+                onRemove: () => ref
                     .read(cartProvider.notifier)
                     .removeItem(items[i].variantId),
               ),

@@ -7,6 +7,7 @@ import '../../cart/models/cart_item.dart';
 import '../../orders/models/order.dart';
 import '../../products/providers/products_provider.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/bluetooth/printer_service.dart';
 import '../../../shared/theme/app_theme.dart';
 
 final _idr = NumberFormat.currency(
@@ -55,9 +56,11 @@ Future<void> _processPayment() async {
     _errorMessage = null;
   });
 
-  // ← Capture total BEFORE clearing cart
   final confirmedTotal = _total;
   final confirmedChange = _paymentMethod == 'cash' ? _change : 0;
+
+  // Snapshot cart before clearing
+  final cartSnapshot = List<CartItem>.from(ref.read(cartProvider));
 
   try {
     final cartItems = ref.read(cartProvider);
@@ -85,14 +88,18 @@ Future<void> _processPayment() async {
       outletId: '',
     );
 
-    await api.post('/orders', data: request.toJson());
+    final response = await api.post('/orders', data: request.toJson());
+
+    // Extract order number from response
+    final orderNumber =
+        (response.data as Map<String, dynamic>?)?['order_number']
+            as String? ?? 'MND-XXXXXX';
 
     ref.read(cartProvider.notifier).clearCart();
     ref.invalidate(productsProvider);
 
     if (mounted) {
-      // ← Pass captured values to dialog
-      _showSuccessDialog(confirmedTotal, confirmedChange);
+      _showSuccessDialog(confirmedTotal, confirmedChange, orderNumber, cartSnapshot);
     }
   } on DioException catch (e) {
     setState(() {
@@ -103,53 +110,24 @@ Future<void> _processPayment() async {
   }
 }
 
-  void _showSuccessDialog(int total, int change) {
+  void _showSuccessDialog(
+  int total,
+  int change,
+  String orderNumber,
+  List<CartItem> items,
+) {
   showDialog(
     context: context,
     barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 72, height: 72,
-            decoration: BoxDecoration(
-              color: AppTheme.success.withAlpha(25),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.check_circle_rounded,
-                color: AppTheme.success, size: 48),
-          ),
-          const SizedBox(height: 16),
-          const Text('Pembayaran Berhasil!',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
-          const SizedBox(height: 8),
-          Text(_idr.format(total),
-              style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: AppTheme.primaryGold)),
-          if (_paymentMethod == 'cash' && change > 0) ...[
-            const SizedBox(height: 8),
-            Text('Kembalian: ${_idr.format(change)}',
-                style: const TextStyle(
-                    color: AppTheme.success, fontWeight: FontWeight.w700)),
-          ],
-        ],
-      ),
-      actions: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('Transaksi Baru'),
-          ),
-        ),
-      ],
+    builder: (_) => _SuccessDialog(
+      total: total,
+      change: change,
+      paymentMethod: _paymentMethod,
+      orderNumber: orderNumber,
+      items: items,
+      subtotal: _subtotal,
+      taxAmount: _taxAmount,
+      amountPaid: _paymentMethod == 'cash' ? _amountPaid : total,
     ),
   );
 }
@@ -247,8 +225,8 @@ Future<void> _processPayment() async {
                     // Quick amount buttons
                     Wrap(
                       spacing: 8,
-                      children: [_total, _roundUp(_total, 50000),
-                        _roundUp(_total, 100000)].toSet().take(3)
+                      children: {_total, _roundUp(_total, 50000),
+                        _roundUp(_total, 100000)}.take(3)
                           .map((amount) => ActionChip(
                                 label: Text(_idr.format(amount)),
                                 onPressed: () => setState(() =>
@@ -445,4 +423,134 @@ class _TotalRow extends StatelessWidget {
 
 int _roundUp(int amount, int to) {
   return ((amount / to).ceil() * to);
+}
+
+class _SuccessDialog extends ConsumerWidget {
+  final int total;
+  final int change;
+  final String paymentMethod;
+  final String orderNumber;
+  final List<CartItem> items;
+  final int subtotal;
+  final int taxAmount;
+  final int amountPaid;
+
+  const _SuccessDialog({
+    required this.total,
+    required this.change,
+    required this.paymentMethod,
+    required this.orderNumber,
+    required this.items,
+    required this.subtotal,
+    required this.taxAmount,
+    required this.amountPaid,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final idr = NumberFormat.currency(
+        locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+    final printerStatus = ref.watch(printerStatusProvider);
+    final isPrinting = printerStatus == PrinterStatus.printing;
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72, height: 72,
+            decoration: BoxDecoration(
+              color: AppTheme.success.withAlpha(25),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check_circle_rounded,
+                color: AppTheme.success, size: 48),
+          ),
+          const SizedBox(height: 16),
+          const Text('Pembayaran Berhasil!',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+          const SizedBox(height: 4),
+          Text(orderNumber,
+              style: const TextStyle(
+                  color: AppTheme.textMuted, fontSize: 12)),
+          const SizedBox(height: 8),
+          Text(idr.format(total),
+              style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.primaryGold)),
+          if (paymentMethod == 'cash' && change > 0) ...[
+            const SizedBox(height: 8),
+            Text('Kembalian: ${idr.format(change)}',
+                style: const TextStyle(
+                    color: AppTheme.success,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16)),
+          ],
+        ],
+      ),
+      actions: [
+        // Print receipt button
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: isPrinting
+                ? null
+                : () async {
+                    final printerService = ref.read(printerServiceProvider);
+                    ref.read(printerStatusProvider.notifier).state =
+                        PrinterStatus.printing;
+
+                    final error = await printerService.printReceipt(
+                      orderNumber: orderNumber,
+                      items: items,
+                      subtotal: subtotal,
+                      taxAmount: taxAmount,
+                      total: total,
+                      paymentMethod: paymentMethod,
+                      amountPaid: amountPaid,
+                      change: change,
+                      cashierName: 'Kasir',
+                    );
+
+                    ref.read(printerStatusProvider.notifier).state =
+                        PrinterStatus.connected;
+
+                    if (error != null && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(error),
+                          backgroundColor: AppTheme.error,
+                        ),
+                      );
+                    }
+                  },
+            icon: isPrinting
+                ? const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.print_rounded),
+            label: Text(isPrinting ? 'Mencetak...' : 'Cetak Struk'),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.primaryGold),
+              foregroundColor: AppTheme.primaryGold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // New transaction button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // close dialog
+              Navigator.pop(context); // go back to cashier
+            },
+            child: const Text('Transaksi Baru'),
+          ),
+        ),
+      ],
+    );
+  }
 }
