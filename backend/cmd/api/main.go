@@ -65,6 +65,9 @@ func main() {
 	// Product service and handler
 	productService := services.NewProductService(db, cache)
 	productHandler := handlers.NewProductHandler(productService)
+	// After: productService := services.NewProductService(db, cache)
+	orderService := services.NewOrderService(db)
+	orderHandler := handlers.NewOrderHandler(orderService, userService)
 
 	// ── Router ────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -101,6 +104,8 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.RequireAuth(firebaseClient))
 
+			// After existing product routes, still inside RequireAuth group:
+			r.Post("/orders", orderHandler.CreateOrder)
 			r.Get("/products", productHandler.ListActiveProducts)
 			r.Get("/products/{id}", productHandler.GetProduct)
 			r.Get("/categories", productHandler.ListCategories)
