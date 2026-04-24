@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Epheyy/mandalikapos/backend/internal/middleware"
 	"github.com/Epheyy/mandalikapos/backend/internal/models"
@@ -58,4 +59,55 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	middleware.WriteCreated(w, order)
+}
+
+// ListOrders returns orders for the admin panel with optional filters.
+// GET /api/v1/admin/orders?from=2024-01-01&to=2024-01-31&status=completed&paymentMethod=cash
+func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := &models.ListOrdersFilter{Limit: 50}
+
+	if v := q.Get("from"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			filter.From = &t
+		}
+	}
+	if v := q.Get("to"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			end := t.Add(24*time.Hour - time.Second)
+			filter.To = &end
+		}
+	}
+	filter.Status = q.Get("status")
+	filter.PaymentMethod = q.Get("paymentMethod")
+
+	orders, err := h.orderService.ListOrders(r.Context(), filter)
+	if err != nil {
+		middleware.WriteInternalError(w, err)
+		return
+	}
+	middleware.WriteSuccess(w, orders)
+}
+
+// RefundOrder marks an order as refunded and restores stock.
+// PUT /api/v1/admin/orders/{id}/refund
+func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		middleware.WriteBadRequest(w, "invalid order ID")
+		return
+	}
+
+	var req models.RefundOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteBadRequest(w, "invalid request body")
+		return
+	}
+
+	order, err := h.orderService.RefundOrder(r.Context(), id, req.Reason)
+	if err != nil {
+		middleware.WriteBadRequest(w, err.Error())
+		return
+	}
+	middleware.WriteSuccess(w, order)
 }

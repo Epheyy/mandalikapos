@@ -40,6 +40,13 @@ func main() {
 		log.Fatalf("❌ Database migration failed: %v", err)
 	}
 
+	// ── Redis ──────────────────────────────────────────────────
+	cache, err := redisclient.New(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("❌ Redis connection failed: %v", err)
+	}
+	defer cache.Close()
+
 	// ── Firebase Auth ──────────────────────────────────────────
 	firebaseClient, err := auth.NewFirebaseClient(cfg.FirebaseServiceAccountPath)
 	if err != nil {
@@ -47,27 +54,30 @@ func main() {
 	}
 
 	// ── Services ───────────────────────────────────────────────
-	userService := services.NewUserService(db)
+	userService       := services.NewUserService(db)
+	productService    := services.NewProductService(db, cache)
+	orderService      := services.NewOrderService(db)
+	customerService   := services.NewCustomerService(db)
+	outletService     := services.NewOutletService(db)
+	promotionService  := services.NewPromotionService(db)
+	shiftService      := services.NewShiftService(db)
+	settingsService   := services.NewSettingsService(db)
+	dashboardService  := services.NewDashboardService(db, cache)
+	reportService     := services.NewReportService(db, cache)
+	stockCountService := services.NewStockCountService(db)
 
 	// ── Handlers ───────────────────────────────────────────────
-	userHandler := handlers.NewUserHandler(userService)
-
-	// After: userHandler := handlers.NewUserHandler(userService)
-	// Add these lines:
-
-	// Redis cache
-	cache, err := redisclient.New(cfg.RedisURL)
-	if err != nil {
-		log.Fatalf("❌ Redis connection failed: %v", err)
-	}
-	defer cache.Close()
-
-	// Product service and handler
-	productService := services.NewProductService(db, cache)
-	productHandler := handlers.NewProductHandler(productService)
-	// After: productService := services.NewProductService(db, cache)
-	orderService := services.NewOrderService(db)
-	orderHandler := handlers.NewOrderHandler(orderService, userService)
+	userHandler       := handlers.NewUserHandler(userService)
+	productHandler    := handlers.NewProductHandler(productService)
+	orderHandler      := handlers.NewOrderHandler(orderService, userService)
+	customerHandler   := handlers.NewCustomerHandler(customerService)
+	outletHandler     := handlers.NewOutletHandler(outletService)
+	promotionHandler  := handlers.NewPromotionHandler(promotionService)
+	shiftHandler      := handlers.NewShiftHandler(shiftService, userService)
+	settingsHandler   := handlers.NewSettingsHandler(settingsService)
+	dashboardHandler  := handlers.NewDashboardHandler(dashboardService)
+	reportHandler     := handlers.NewReportHandler(reportService)
+	stockCountHandler := handlers.NewStockCountHandler(stockCountService, userService)
 
 	// ── Router ────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -85,7 +95,7 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// Public health check — no auth required
+	// Public health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
@@ -97,25 +107,46 @@ func main() {
 		fmt.Fprint(w, `{"status":"healthy","service":"mandalika-pos-backend"}`)
 	})
 
-	// All routes under /api/v1
 	r.Route("/api/v1", func(r chi.Router) {
 
-		// Products — all authenticated users can read
+		// ── Authenticated routes (all roles) ──────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.RequireAuth(firebaseClient))
 
-			// After existing product routes, still inside RequireAuth group:
-			r.Post("/orders", orderHandler.CreateOrder)
+			// Auth
+			r.Post("/auth/me", userHandler.Me)
+
+			// Products & Categories (read)
 			r.Get("/products", productHandler.ListActiveProducts)
 			r.Get("/products/{id}", productHandler.GetProduct)
 			r.Get("/categories", productHandler.ListCategories)
+
+			// Orders
+			r.Post("/orders", orderHandler.CreateOrder)
+
+			// Customers (cashier can lookup and register)
+			r.Get("/customers", customerHandler.ListCustomers)
+			r.Post("/customers", customerHandler.CreateCustomer)
+
+			// Shifts
+			r.Get("/shifts/current", shiftHandler.GetCurrentShift)
+			r.Post("/shifts/open", shiftHandler.OpenShift)
+			r.Post("/shifts/close", shiftHandler.CloseShift)
+
+			// Promotions (cashier reads active promotions)
+			r.Get("/promotions/active", promotionHandler.ListActivePromotions)
+			r.Post("/promotions/validate-code", promotionHandler.ValidateDiscountCode)
+
+			// Settings (all users can read)
+			r.Get("/settings", settingsHandler.GetSettings)
 		})
 
-		// Admin product management
+		// ── Admin / Manager routes ─────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.RequireAuth(firebaseClient))
 			r.Use(appMiddleware.RequireRole(db, "admin", "manager"))
 
+			// Products & Categories (write)
 			r.Get("/admin/products", productHandler.ListAllProducts)
 			r.Post("/admin/products", productHandler.CreateProduct)
 			r.Patch("/admin/products/{id}", productHandler.UpdateProduct)
@@ -124,21 +155,54 @@ func main() {
 			r.Post("/admin/categories", productHandler.CreateCategory)
 			r.Put("/admin/categories/{id}", productHandler.UpdateCategory)
 			r.Delete("/admin/categories/{id}", productHandler.DeleteCategory)
-		})
 
-		// ── Auth routes (require valid Firebase token) ─────────
-		r.Group(func(r chi.Router) {
-			r.Use(appMiddleware.RequireAuth(firebaseClient))
+			// Users
+			r.Get("/admin/users", userHandler.ListUsers)
+			r.Patch("/admin/users/{id}", userHandler.UpdateUser)
 
-			// Called by Flutter immediately after login
-			r.Post("/auth/me", userHandler.Me)
+			// Outlets
+			r.Get("/admin/outlets", outletHandler.ListOutlets)
+			r.Post("/admin/outlets", outletHandler.CreateOutlet)
+			r.Put("/admin/outlets/{id}", outletHandler.UpdateOutlet)
+			r.Delete("/admin/outlets/{id}", outletHandler.DeleteOutlet)
 
-			// ── Admin-only routes ──────────────────────────────
-			r.Group(func(r chi.Router) {
-				r.Use(appMiddleware.RequireRole(db, "admin", "manager"))
-				r.Get("/users", userHandler.ListUsers)
-				r.Patch("/users/{id}", userHandler.UpdateUser)
-			})
+			// Customers (admin manages)
+			r.Put("/admin/customers/{id}", customerHandler.UpdateCustomer)
+			r.Delete("/admin/customers/{id}", customerHandler.DeleteCustomer)
+			r.Get("/admin/customers/{id}/orders", customerHandler.GetCustomerOrders)
+
+			// Promotions
+			r.Get("/admin/promotions", promotionHandler.ListPromotions)
+			r.Post("/admin/promotions", promotionHandler.CreatePromotion)
+			r.Delete("/admin/promotions/{id}", promotionHandler.DeletePromotion)
+
+			// Discount codes
+			r.Get("/admin/discount-codes", promotionHandler.ListDiscountCodes)
+			r.Post("/admin/discount-codes", promotionHandler.CreateDiscountCode)
+			r.Delete("/admin/discount-codes/{id}", promotionHandler.DeleteDiscountCode)
+
+			// Orders (admin view + refund)
+			r.Get("/admin/orders", orderHandler.ListOrders)
+			r.Put("/admin/orders/{id}/refund", orderHandler.RefundOrder)
+
+			// Shifts
+			r.Get("/admin/shifts", shiftHandler.ListShifts)
+
+			// Settings
+			r.Put("/admin/settings", settingsHandler.UpdateSettings)
+
+			// Dashboard
+			r.Get("/admin/dashboard/stats", dashboardHandler.GetStats)
+
+			// Reports
+			r.Get("/admin/reports/sales", reportHandler.GetSalesReport)
+
+			// Stock counts
+			r.Get("/admin/stock-counts", stockCountHandler.ListStockCounts)
+			r.Post("/admin/stock-counts", stockCountHandler.CreateStockCount)
+			r.Get("/admin/stock-counts/{id}", stockCountHandler.GetStockCount)
+			r.Patch("/admin/stock-counts/{id}/items/{itemId}", stockCountHandler.UpdateItemQty)
+			r.Patch("/admin/stock-counts/{id}/status", stockCountHandler.UpdateStatus)
 		})
 	})
 

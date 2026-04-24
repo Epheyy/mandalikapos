@@ -83,6 +83,15 @@ func (s *OrderService) CreateOrder(
 		}
 	}
 
+	// Parse optional shift ID
+	var shiftID *uuid.UUID
+	if req.ShiftID != nil && *req.ShiftID != "" {
+		parsed, err := uuid.Parse(*req.ShiftID)
+		if err == nil {
+			shiftID = &parsed
+		}
+	}
+
 	// Use a transaction — order + items + stock decrement must all succeed or all fail
 	tx, err := s.db.Pool.Begin(ctx)
 	if err != nil {
@@ -93,14 +102,16 @@ func (s *OrderService) CreateOrder(
 	// Insert the order
 	_, err = tx.Exec(ctx, `
 		INSERT INTO orders (
-			id, order_number, outlet_id, cashier_id, customer_id,
-			subtotal, discount_amount, tax_amount, surcharge_amount,
+			id, order_number, outlet_id, cashier_id, customer_id, shift_id,
+			subtotal, discount_amount, discount_type, discount_value, discount_code,
+			tax_amount, surcharge_amount,
 			total, payment_method, amount_paid, change_amount,
 			status, notes, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 	`,
-		orderID, orderNumber, outletID, cashierID, customerID,
-		req.Subtotal, req.DiscountAmount, req.TaxAmount, 0,
+		orderID, orderNumber, outletID, cashierID, customerID, shiftID,
+		req.Subtotal, req.DiscountAmount, req.DiscountType, req.DiscountValue, req.DiscountCode,
+		req.TaxAmount, 0,
 		req.Total, req.PaymentMethod, req.AmountPaid, req.ChangeAmount,
 		"completed", req.Notes, now,
 	)
@@ -240,6 +251,126 @@ func (s *OrderService) GetOrdersByDateRange(
 		orders = append(orders, o)
 	}
 	return orders, nil
+}
+
+// ListOrders returns orders filtered by optional criteria (admin view).
+func (s *OrderService) ListOrders(ctx context.Context, filter *models.ListOrdersFilter) ([]*models.Order, error) {
+	query := `
+		SELECT o.id, o.order_number, o.outlet_id, o.cashier_id, u.display_name,
+		       o.customer_id, c.name,
+		       o.subtotal, o.discount_amount, o.tax_amount, o.surcharge_amount,
+		       o.total, o.payment_method, o.amount_paid, o.change_amount,
+		       o.status, o.notes, o.refund_reason, o.refunded_at, o.created_at
+		FROM orders o
+		JOIN users u ON u.id = o.cashier_id
+		LEFT JOIN customers c ON c.id = o.customer_id
+		WHERE 1=1`
+	args := []any{}
+	i := 1
+
+	if filter.From != nil {
+		query += fmt.Sprintf(" AND o.created_at >= $%d", i)
+		args = append(args, *filter.From)
+		i++
+	}
+	if filter.To != nil {
+		query += fmt.Sprintf(" AND o.created_at <= $%d", i)
+		args = append(args, *filter.To)
+		i++
+	}
+	if filter.Status != "" {
+		query += fmt.Sprintf(" AND o.status = $%d", i)
+		args = append(args, filter.Status)
+		i++
+	}
+	if filter.PaymentMethod != "" {
+		query += fmt.Sprintf(" AND o.payment_method = $%d", i)
+		args = append(args, filter.PaymentMethod)
+		i++
+	}
+	if filter.CashierID != nil {
+		query += fmt.Sprintf(" AND o.cashier_id = $%d", i)
+		args = append(args, *filter.CashierID)
+		i++
+	}
+
+	query += " ORDER BY o.created_at DESC"
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	query += fmt.Sprintf(" LIMIT $%d", i)
+	args = append(args, limit)
+	i++
+
+	page := filter.Page
+	if page > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", i)
+		args = append(args, page*limit)
+	}
+
+	rows, err := s.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []*models.Order
+	for rows.Next() {
+		o := &models.Order{}
+		var customerID *uuid.UUID
+		if err := rows.Scan(
+			&o.ID, &o.OrderNumber, &o.OutletID, &o.CashierID, &o.CashierName,
+			&customerID, &o.CustomerName,
+			&o.Subtotal, &o.DiscountAmount, &o.TaxAmount, &o.SurchargeAmount,
+			&o.Total, &o.PaymentMethod, &o.AmountPaid, &o.ChangeAmount,
+			&o.Status, &o.Notes, &o.RefundReason, &o.RefundedAt, &o.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		o.CustomerID = customerID
+		orders = append(orders, o)
+	}
+	return orders, nil
+}
+
+// RefundOrder marks an order as refunded and restores stock.
+func (s *OrderService) RefundOrder(ctx context.Context, id uuid.UUID, reason string) (*models.Order, error) {
+	existing, err := s.GetOrderByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("order not found: %w", err)
+	}
+	if existing.Status != "completed" {
+		return nil, fmt.Errorf("only completed orders can be refunded")
+	}
+
+	tx, err := s.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE orders SET status='refunded', refund_reason=$1, refunded_at=NOW()
+		WHERE id=$2
+	`, reason, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refund order: %w", err)
+	}
+
+	// Restore stock
+	for _, item := range existing.Items {
+		if _, err := tx.Exec(ctx, `
+			UPDATE product_variants SET stock = stock + $1, updated_at=NOW() WHERE id=$2
+		`, item.Quantity, item.VariantID); err != nil {
+			return nil, fmt.Errorf("failed to restore stock: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit refund: %w", err)
+	}
+	return s.GetOrderByID(ctx, id)
 }
 
 func generateOrderNumber() string {

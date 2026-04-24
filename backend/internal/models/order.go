@@ -14,9 +14,13 @@ type Order struct {
 	CashierName     string      `json:"cashier_name"`
 	CustomerID      *uuid.UUID  `json:"customer_id,omitempty"`
 	CustomerName    *string     `json:"customer_name,omitempty"`
+	ShiftID         *uuid.UUID  `json:"shift_id,omitempty"`
 	Items           []OrderItem `json:"items"`
 	Subtotal        int64       `json:"subtotal"`
 	DiscountAmount  int64       `json:"discount_amount"`
+	DiscountType    *string     `json:"discount_type,omitempty"`
+	DiscountValue   *int64      `json:"discount_value,omitempty"`
+	DiscountCode    *string     `json:"discount_code,omitempty"`
 	TaxAmount       int64       `json:"tax_amount"`
 	SurchargeAmount int64       `json:"surcharge_amount"`
 	Total           int64       `json:"total"`
@@ -46,12 +50,16 @@ type CreateOrderRequest struct {
 	Items          []CreateOrderItemRequest `json:"items"`
 	Subtotal       int64                    `json:"subtotal"`
 	DiscountAmount int64                    `json:"discount_amount"`
+	DiscountType   *string                  `json:"discount_type,omitempty"`
+	DiscountValue  *int64                   `json:"discount_value,omitempty"`
+	DiscountCode   *string                  `json:"discount_code,omitempty"`
 	TaxAmount      int64                    `json:"tax_amount"`
 	Total          int64                    `json:"total"`
 	PaymentMethod  string                   `json:"payment_method"`
 	AmountPaid     int64                    `json:"amount_paid"`
 	ChangeAmount   int64                    `json:"change_amount"`
 	CustomerID     *string                  `json:"customer_id,omitempty"`
+	ShiftID        *string                  `json:"shift_id,omitempty"`
 	Notes          *string                  `json:"notes,omitempty"`
 	OutletID       string                   `json:"outlet_id"`
 }
@@ -64,4 +72,18 @@ type CreateOrderItemRequest struct {
 	Price       int64  `json:"price"`
 	Quantity    int    `json:"quantity"`
 	Subtotal    int64  `json:"subtotal"`
+}
+
+type ListOrdersFilter struct {
+	From          *time.Time
+	To            *time.Time
+	Status        string
+	PaymentMethod string
+	CashierID     *uuid.UUID
+	Page          int
+	Limit         int
+}
+
+type RefundOrderRequest struct {
+	Reason string `json:"reason"`
 }
