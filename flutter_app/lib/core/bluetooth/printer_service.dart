@@ -127,7 +127,7 @@ class PrinterService {
       );
 
       // Send to printer
-      final result = await PrintBluetoothThermal.writeBytes(bytes);
+      final result = await PrintBluetoothThermal.writeBytes(bytes.toList());
       if (!result) {
         return 'Gagal mengirim data ke printer. Coba lagi.';
       }
@@ -169,7 +169,7 @@ class PrinterService {
       bytes += generator.cut();
 
       final result =
-          await PrintBluetoothThermal.writeBytes(Uint8List.fromList(bytes));
+          await PrintBluetoothThermal.writeBytes(bytes.toList());
       return result ? null : 'Gagal mencetak halaman tes';
     } catch (e) {
       return 'Error: $e';
@@ -313,13 +313,11 @@ class PrinterService {
     bytes += generator.row([
       PosColumn(
           text: 'TOTAL', width: 6,
-          styles: const PosStyles(bold: true, height: PosTextSize.size2,
-              width: PosTextSize.size2)),
+          styles: const PosStyles(bold: true)),
       PosColumn(
           text: idr.format(total), width: 6,
           styles: const PosStyles(
-              align: PosAlign.right, bold: true,
-              height: PosTextSize.size2, width: PosTextSize.size2)),
+              align: PosAlign.right, bold: false)),
     ]);
 
     bytes += generator.emptyLines(1);
